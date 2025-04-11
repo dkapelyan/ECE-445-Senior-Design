@@ -1,0 +1,238 @@
+﻿I2C Scanner:
+
+#include <Wire.h>
+
+
+#define SDA_PIN 21
+#define SCL_PIN 22
+
+
+void setup() {
+  Serial.begin(115200);
+  while (!Serial);  // Wait for Serial Monitor to open
+
+
+  Serial.println("🔍 Starting I2C Scanner...");
+  Wire.begin(SDA_PIN, SCL_PIN);  // Initialize I2C with defined pins
+  delay(100);
+}
+
+
+void loop() {
+  byte error, address;
+  int nDevices = 0;
+
+
+  Serial.println("📡 Scanning I2C bus...");
+
+
+  for (address = 1; address < 127; address++) {
+    Wire.beginTransmission(address);
+    error = Wire.endTransmission();
+
+
+    if (error == 0) {
+      Serial.print("✅ I2C device found at address 0x");
+      if (address < 16)
+        Serial.print("0");
+      Serial.print(address, HEX);
+      Serial.println();
+      nDevices++;
+    } else if (error == 4) {
+      Serial.print("⚠️ Unknown error at address 0x");
+      if (address < 16)
+        Serial.print("0");
+      Serial.println(address, HEX);
+    }
+  }
+
+
+  if (nDevices == 0)
+    Serial.println("❌ No I2C devices found.\n");
+  else
+    Serial.println("✅ Scan complete.\n");
+
+
+  delay(2000);  // Wait before next scan
+}
+
+
+—------------------------------------------------------------------------------------------------------------------------
+
+
+Flow Sensor Code:
+
+#include <Wire.h>
+
+
+#define SDA_PIN 21
+#define SCL_PIN 22
+#define I2C_ADDRESS 0x08  // Confirmed from I2C scanner Code
+
+
+void setup() {
+  Serial.begin(115200);
+  Wire.begin(SDA_PIN, SCL_PIN);
+
+
+  delay(100);
+  Serial.println("🟢 Starting SLF3S-0600F Continuous Measurement...");
+
+
+  // Send command: Start continuous measurement (0x3608)
+  Wire.beginTransmission(I2C_ADDRESS);
+  Wire.write(0x36);  // MSB
+  Wire.write(0x08);  // LSB
+  Wire.endTransmission();
+  Serial.println("📡 Measurement mode: CONTINUOUS");
+  delay(50);  // Wait for sensor to respond
+}
+
+
+// Sensirion CRC-8 (polynomial 0x31, init 0xFF)
+uint8_t calculateCRC(uint8_t* data, uint8_t len) {
+  uint8_t crc = 0xFF;
+  for (uint8_t i = 0; i < len; i++) {
+    crc ^= data[i];
+    for (uint8_t j = 0; j < 8; j++) {
+      if (crc & 0x80)
+        crc = (crc << 1) ^ 0x31;
+      else
+        crc <<= 1;
+    }
+  }
+  return crc;
+}
+
+
+void loop() {
+  Wire.requestFrom(I2C_ADDRESS, 6);  // Request 6 bytes from sensor
+
+
+  if (Wire.available() == 6) {
+    uint8_t flowMSB = Wire.read();
+    uint8_t flowLSB = Wire.read();
+    uint8_t flowCRC = Wire.read();
+
+
+    uint8_t tempMSB = Wire.read();
+    uint8_t tempLSB = Wire.read();
+    uint8_t tempCRC = Wire.read();
+
+
+    uint8_t flowData[2] = { flowMSB, flowLSB };
+    uint8_t tempData[2] = { tempMSB, tempLSB };
+
+
+    // Validate CRC
+    if (calculateCRC(flowData, 2) != flowCRC) {
+      Serial.println("❌ CRC error: Flow data");
+      return;
+    }
+    if (calculateCRC(tempData, 2) != tempCRC) {
+      Serial.println("❌ CRC error: Temp data");
+      return;
+    }
+
+
+    // Convert raw values
+    int16_t rawFlow = (flowMSB << 8) | flowLSB;
+    int16_t rawTemp = (tempMSB << 8) | tempLSB;
+
+
+    float flow = rawFlow / 500.0;       // mL/min (per datasheet)
+    float tempC = rawTemp / 200.0;      // °C (per datasheet)
+
+
+    // Apply threshold to suppress noise
+    if (abs(flow) < 0.05) flow = 0.0; // I saw a 0.01 mL flow when there is nothing there, sensor noise, ADC offset drift, and other temperature, air currents, or minor vibration could cause it so I'm just eliminating it
+
+
+    // Output values
+    Serial.print("💧 Flow: ");
+    Serial.print(flow);
+    Serial.print(" mL/min | 🌡 Temp: ");
+    Serial.print(tempC);
+    Serial.println(" °C");
+  } else {
+    Serial.println("⚠️ Sensor did not return 6 bytes");
+  }
+
+
+  delay(500);  // Sampling rate: 2x per second
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+L
